@@ -1,0 +1,22 @@
+
+spring:
+  kafka:
+    bootstrap-servers: 192.168.177.129:9002,192.168.177.129:9003,192.169.177.128:9004
+    producer:
+      # 发送错误后 消息重发次数
+      retries: 3
+      # 当有多个消息需要被发现给同一个分区时，生产者会把它们放在同个批次里，该参数指定了一个批次可以使用的内存大小 按照字节数统计
+      batch-size: 16384
+      # 生产者内存缓冲区大小
+      buffer-memory: 33554432
+      acks: all
+
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      session-timeout-ms: 6000
+      heartbeat-interval: 2000
+      group-id: firstGroup
+server:
+  port: 8081
+debug: true
