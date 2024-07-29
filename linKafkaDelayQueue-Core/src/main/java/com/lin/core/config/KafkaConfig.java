@@ -21,6 +21,7 @@ public class KafkaConfig {
     private final static String SESSION_TIMEOUT_MS = "session-timeout-ms";
     private final static String HEARTBEAT_INTERVAL = "heartbeat-interval";
     private String bootstrapServers;
+    private String monitorTopic;
     /**
      * 生产者配置
      */

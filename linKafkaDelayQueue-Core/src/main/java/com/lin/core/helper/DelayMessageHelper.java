@@ -31,7 +31,7 @@ public class DelayMessageHelper {
     public void start() {
         Arrays.stream(DelayLevelEnum.values()).forEach(i -> {
             DelayMessageRunner delayMessageRunner = new DelayMessageRunner(kafkaConfig.getBootstrapServers(),
-                    kafkaConfig.getConsumer().get("group-id").toString(), i.getDesc(), i.getValue());
+                    kafkaConfig.getConsumer().get("group-id").toString(),kafkaConfig.getMonitorTopic() , i.getDesc(), i.getValue());
             delayThreadPoolExecutor.execute(delayMessageRunner);
             delayMessageRunnerList.add(delayMessageRunner);
         });
