@@ -5,17 +5,13 @@ import com.lin.common.message.DelayMessage;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ExecutionException;
 
 /**
  * @author linzj
@@ -169,7 +165,11 @@ public class DelayMessageRunner implements Runnable {
             OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(recordMetadata.offset() + 1);
             Map<TopicPartition, OffsetAndMetadata> metadataMap = new HashMap<>();
             metadataMap.put(topicPartition, offsetAndMetadata);
-            consumer.commitSync(metadataMap);
+            consumer.commitAsync(metadataMap, new OffsetCommitCallback() {
+                @Override
+                public void onComplete(Map<TopicPartition, OffsetAndMetadata> map, Exception e) {
+                }
+            });
             return true;
         } catch (Exception e) {
             consumer.pause(Collections.singletonList(topicPartition));
