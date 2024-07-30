@@ -76,42 +76,18 @@ public class DelayMessageRunner implements Runnable {
                 for (ConsumerRecord<String, String> consumerRecord : consumerRecords) {
                     long timestamp = consumerRecord.timestamp();
                     TopicPartition topicPartition = new TopicPartition(consumerRecord.topic(), consumerRecord.partition());
-                    if (timestamp + this.delayTime + 1000 * 60 * 2 < System.currentTimeMillis()) {
+                    if (timestamp + this.delayTime + 1000 * 60 * 60 * 2 < System.currentTimeMillis()) {
                         log.warn("delay message is more than 2 hours old");
                         continue;
                     }
                     else if (timestamp + this.delayTime < System.currentTimeMillis()) {
-                        String value = consumerRecord.value();
-                        DelayMessage delayMessage;
-                        try {
-                            delayMessage = JsonUtil.parse(value, DelayMessage.class);
-                        } catch (Exception e) {
-                            log.warn("delayMessage parse json error: {}", e.getMessage());
-                            continue;
-                        }
-                        String targetTopic = delayMessage.getTopic();
-                        String targetKey = delayMessage.getKey();
-                        String targetValue = delayMessage.getValue();
-                        ProducerRecord<String, String> producerRecord = new ProducerRecord<>(targetTopic, targetKey, targetValue);
-                        try {
-                            RecordMetadata recordMetadata = this.producer.send(producerRecord).get();
-                            log.info("send delay message to targetUser, topic:{}, key:{}, value:{}, offset:{}",
-                                    targetTopic, targetKey, targetValue, recordMetadata.offset());
-                            monitorKafkaDelayInterval(targetKey, timestamp+this.delayTime);
-                            OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(recordMetadata.offset() + 1);
-                            Map<TopicPartition, OffsetAndMetadata> metadataMap = new HashMap<>();
-                            metadataMap.put(topicPartition, offsetAndMetadata);
-                            consumer.commitSync(metadataMap);
-                        } catch (ExecutionException e) {
-                            consumer.pause(Collections.singletonList(topicPartition));
-                            consumer.seek(topicPartition, consumerRecord.offset());
+                        if (!delayMessageForwardHandler(consumerRecord)) {
                             timed = true;
                             break;
-
                         }
                     } else if (timestamp + this.delayTime - 800 < System.currentTimeMillis()) {
                         log.info("enter 800ms message delay interval");
-                        long delayWaitTime = timestamp + this.delayTime - System.currentTimeMillis();
+                        long delayWaitTime = timestamp + this.delayTime - System.currentTimeMillis() - 5;
                         try {
                             Thread.sleep(delayWaitTime);
                         }catch (InterruptedException e) {
@@ -121,33 +97,9 @@ public class DelayMessageRunner implements Runnable {
                             timed = true;
                             break;
                         }
-                        String value = consumerRecord.value();
-                        DelayMessage delayMessage;
-                        try {
-                            delayMessage = JsonUtil.parse(value, DelayMessage.class);
-                        } catch (Exception e) {
-                            log.warn("delayMessage parse json error: {}", e.getMessage());
-                            continue;
-                        }
-                        String targetTopic = delayMessage.getTopic();
-                        String targetKey = delayMessage.getKey();
-                        String targetValue = delayMessage.getValue();
-                        ProducerRecord<String, String> producerRecord = new ProducerRecord<>(targetTopic, targetKey, targetValue);
-                        try {
-                            RecordMetadata recordMetadata = this.producer.send(producerRecord).get();
-                            log.info("send delay message to targetUser, topic:{}, key:{}, value:{}, offset:{}",
-                                    targetTopic, targetKey, targetValue, recordMetadata.offset());
-                            monitorKafkaDelayInterval(targetKey, timestamp+this.delayTime);
-                            OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(recordMetadata.offset() + 1);
-                            Map<TopicPartition, OffsetAndMetadata> metadataMap = new HashMap<>();
-                            metadataMap.put(topicPartition, offsetAndMetadata);
-                            consumer.commitSync(metadataMap);
-                        } catch (ExecutionException e) {
-                            consumer.pause(Collections.singletonList(topicPartition));
-                            consumer.seek(topicPartition, consumerRecord.offset());
+                        if (!delayMessageForwardHandler(consumerRecord)) {
                             timed = true;
                             break;
-
                         }
                     }
                     else {
