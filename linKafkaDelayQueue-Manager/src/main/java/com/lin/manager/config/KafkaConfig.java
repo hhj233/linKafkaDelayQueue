@@ -24,6 +24,15 @@ public class KafkaConfig {
     public final static String GROUP_ID = "group-id";
     public String bootstrapServers;
     /**
+     * 监控topic
+     */
+    private String monitorTopic;
+    /**
+     * 监控topic消费者组
+     */
+    private String monitorTopicGroupId;
+
+    /**
      * 生产者配置
      */
     private Map<String, Object> producer;

@@ -4,3 +4,10 @@ server:
 spring:
   kafka:
     bootstrap-servers: 192.168.177.129:9002,192.168.177.129:9003,192.169.177.129:9004
+    monitor-topic: monitor-topic
+    monitor-topic-group-id: monitor-topic-group
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      heartbeat-interval: 2000
+      session-timeout-ms: 6000

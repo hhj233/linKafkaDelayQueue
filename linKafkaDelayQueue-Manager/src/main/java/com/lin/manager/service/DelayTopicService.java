@@ -8,7 +8,7 @@ import java.util.List;
 /**
  * @author linzj
  */
-public interface TopicService {
+public interface DelayTopicService {
     /**
      * 获取所有topic
      * @return

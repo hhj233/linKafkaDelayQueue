@@ -2,7 +2,7 @@ package com.lin.manager.service.impl;
 
 import com.lin.common.util.ExceptionUtil;
 import com.lin.manager.dto.DelayTopicDetailDto;
-import com.lin.manager.service.TopicService;
+import com.lin.manager.service.DelayTopicService;
 import com.lin.manager.vo.DelayTopicDetailRespVo;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @Slf4j
-public class TopicServiceImpl implements TopicService {
+public class DelayDelayTopicServiceImpl implements DelayTopicService {
     private static final String DELAY_QUEUE_PREFIX = "kafka__delay";
     @Autowired
     private AdminClient adminClient;
