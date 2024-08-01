@@ -70,6 +70,7 @@ public class DelayMessageRunner implements Runnable {
                 log.info("pull {} messages from {}", consumerRecords.count(), topic);
                 boolean timed = false;
                 for (ConsumerRecord<String, String> consumerRecord : consumerRecords) {
+                    log.info("delay queue topic:{},partition:{},offset:{}",consumerRecord.topic(), consumerRecord.partition(), consumerRecord.offset());
                     long timestamp = consumerRecord.timestamp();
                     TopicPartition topicPartition = new TopicPartition(consumerRecord.topic(), consumerRecord.partition());
                     if (timestamp + this.delayTime + 1000 * 60 * 60 * 2 < System.currentTimeMillis()) {
@@ -162,7 +163,7 @@ public class DelayMessageRunner implements Runnable {
             log.info("send delay message to targetUser, topic:{}, key:{}, value:{}, offset:{}",
                     targetTopic, targetKey, targetValue, recordMetadata.offset());
             monitorKafkaDelayInterval(targetKey, timestamp+this.delayTime);
-            OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(recordMetadata.offset() + 1);
+            OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(consumerRecord.offset() + 1);
             Map<TopicPartition, OffsetAndMetadata> metadataMap = new HashMap<>();
             metadataMap.put(topicPartition, offsetAndMetadata);
             consumer.commitAsync(metadataMap, new OffsetCommitCallback() {
