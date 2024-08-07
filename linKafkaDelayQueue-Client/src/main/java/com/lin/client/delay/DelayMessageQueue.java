@@ -1,18 +1,24 @@
 package com.lin.client.delay;
 
+import com.lin.client.loadBalance.DelayLoadBalanceRoundRobinRule;
 import com.lin.common.config.DelayMessageConfig;
+import com.lin.common.constant.DelayConstEnum;
 import com.lin.common.constant.DelayLevelEnum;
 import com.lin.common.message.DelayMessage;
 import com.lin.common.util.ExceptionUtil;
 import com.lin.common.util.JsonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.clients.producer.*;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 
 /**
@@ -22,11 +28,15 @@ import java.util.function.Consumer;
 public class DelayMessageQueue {
     private final DelayMessageConfig config;
 
+    private final AdminClient adminClient;
+    private CopyOnWriteArrayList<String> delayTopicList = new CopyOnWriteArrayList<>();
+
     private KafkaConsumer<String,String> consumer;
     private KafkaProducer<String,String> producer;
 
-    public DelayMessageQueue(DelayMessageConfig config) {
+    public DelayMessageQueue(DelayMessageConfig config, AdminClient client) {
         this.config = config;
+        this.adminClient = client;
 
     }
 
@@ -34,6 +44,38 @@ public class DelayMessageQueue {
         this.consumer = createKafkaConsumer(config.getServers(), config.getGroupId());
         this.producer = createKafkaProducer(config.getServers());
         this.consumer.subscribe(Collections.singleton(config.getTopic()));
+        Timer timer = new Timer();
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                delayTopicQuery();
+            }
+        }, 0, 60*1000);
+    }
+
+    private void delayTopicQuery() {
+        try {
+            Set<String> allServerTopicSet = this.adminClient.listTopics().names().get();
+            List<String> delayTopicList = allServerTopicSet.stream().filter(i -> i.contains(DelayConstEnum.CONST_DELAY_TOPIC_PREFIX.getCode()))
+                    .collect(Collectors.toList());
+            for (String delayTopic : delayTopicList) {
+                boolean flag = false;
+                for (String alreadyDelayTopic : this.delayTopicList) {
+                    if (alreadyDelayTopic.equals(delayTopic)) {
+                        flag = true;
+                        break;
+                    }
+                }
+                if (!flag) {
+                    this.delayTopicList.add(delayTopic);
+
+                }
+            }
+        } catch (InterruptedException e) {
+            log.error("get delay topic error:{}", ExceptionUtil.getStackTraceAsString(e));
+        } catch (ExecutionException e) {
+            log.error("get delay topic error:{}", ExceptionUtil.getStackTraceAsString(e));
+        }
     }
 
     public void shutdown() {
@@ -45,7 +87,11 @@ public class DelayMessageQueue {
         delayMessage.setLevel(level);
         delayMessage.setTopic(config.getTopic());
         delayMessage.setValue(message);
-        ProducerRecord<String,String> producerRecord = new ProducerRecord<>(level.getDesc(),
+        // todo 负载均衡器
+        String delayTopic = DelayLoadBalanceRoundRobinRule.DelayLoadBalanceRoundRobinRuleHandler
+                .getInstance().choose(level, this.delayTopicList);
+        log.info("load balance delay level topic,levelTopic:{}, chooseTopic:{}", level.getDesc(), delayTopic);
+        ProducerRecord<String,String> producerRecord = new ProducerRecord<>(delayTopic,
                 delayMessage.getKey(), JsonUtil.toJsonString(delayMessage));
         this.producer.send(producerRecord, new Callback() {
             @Override
