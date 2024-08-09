@@ -2,6 +2,8 @@ package com.lin.common.constant;
 
 import lombok.Getter;
 
+import java.util.Arrays;
+
 /**
  * @author linzj
  */
@@ -39,5 +41,13 @@ public enum DelayLevelEnum {
     DelayLevelEnum(Long value, String desc) {
         this.value = value;
         this.desc = desc;
+    }
+
+    public static DelayLevelEnum getDelayLevelByTopic(String topic) {
+        String[] topicSplit = topic.split("---");
+        return Arrays.stream(values())
+                .filter(i -> i.getDesc().equals(topicSplit[0]))
+                .findFirst()
+                .orElse(null);
     }
 }

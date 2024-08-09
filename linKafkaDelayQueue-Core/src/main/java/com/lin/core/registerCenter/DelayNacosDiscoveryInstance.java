@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.List;
 
 
@@ -58,11 +60,15 @@ public class DelayNacosDiscoveryInstance {
 
     public static void main(String[] args) {
         try {
+            InetAddress localHost = InetAddress.getLocalHost();
+            System.out.println(localHost.getHostAddress());
             NamingService namingService = NamingFactory.createNamingService("127.0.0.1:8848");
             List<Instance> allInstances = namingService.getAllInstances("linKafkaDelayQueue-Core");
             System.out.println(JsonUtil.toJsonString(allInstances));
         } catch (NacosException e) {
             log.error("create a nacos instance error:{}", ExceptionUtil.getStackTraceAsString(e));
+        } catch (UnknownHostException e) {
+            throw new RuntimeException(e);
         }
     }
 }
