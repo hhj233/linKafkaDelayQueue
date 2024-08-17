@@ -1,5 +1,6 @@
 package com.lin.manager.service.impl;
 
+import com.lin.common.constant.DelayConstEnum;
 import com.lin.common.util.ExceptionUtil;
 import com.lin.manager.dto.DelayTopicDetailDto;
 import com.lin.manager.service.DelayTopicService;
@@ -26,7 +27,6 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class DelayDelayTopicServiceImpl implements DelayTopicService {
-    private static final String DELAY_QUEUE_PREFIX = "kafka__delay";
     @Autowired
     private AdminClient adminClient;
 
@@ -38,7 +38,7 @@ public class DelayDelayTopicServiceImpl implements DelayTopicService {
             if (topicSet.isEmpty()) {
                 return null;
             }
-            topicList = topicSet.stream().filter(i -> i.contains(DELAY_QUEUE_PREFIX)).collect(Collectors.toList());
+            topicList = topicSet.stream().filter(i -> i.contains(DelayConstEnum.CONST_DELAY_TOPIC_PREFIX.getCode())).collect(Collectors.toList());
         } catch (Exception e) {
             log.error("query kafka topic error,{}", ExceptionUtil.getStackTraceAsString(e));
             return null;

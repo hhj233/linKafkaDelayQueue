@@ -8,7 +8,7 @@ import lombok.Getter;
 
 @Getter
 public enum DelayConstEnum {
-    CONST_DELAY_TOPIC_PREFIX("kafka__delay")
+    CONST_DELAY_TOPIC_PREFIX("kafka-delay")
     ;
     private String code;
 

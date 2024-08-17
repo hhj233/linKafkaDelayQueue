@@ -98,7 +98,7 @@ public class DelayMessageQueue {
             public void onCompletion(RecordMetadata recordMetadata, Exception e) {
                 if(Objects.nonNull(recordMetadata)) {
                     log.info("send delay message to delayTopic, topic:{}, key:{}, value:{}, offset:{}",
-                            level.getDesc(), delayMessage.getKey(), JsonUtil.toJsonString(delayMessage), recordMetadata.offset());
+                            delayTopic, delayMessage.getKey(), JsonUtil.toJsonString(delayMessage), recordMetadata.offset());
                 } else {
                     log.error("send Kafka error:{}", e.getMessage());
                 }
