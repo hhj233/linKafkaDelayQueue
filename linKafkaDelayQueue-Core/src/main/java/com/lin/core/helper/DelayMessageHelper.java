@@ -113,8 +113,9 @@ public class DelayMessageHelper {
                     if (Objects.isNull(delayLevelByTopic)) {
                         continue;
                     }
+                    String groupId = new StringBuilder(delayTopic).append("-group").toString();
                     DelayMessageRunner delayMessageRunner = new DelayMessageRunner(kafkaConfig.getBootstrapServers(),
-                            delayTopic,kafkaConfig.getMonitorTopic() , delayTopic, delayLevelByTopic.getValue());
+                            groupId,kafkaConfig.getMonitorTopic() , delayTopic, delayLevelByTopic.getValue());
                     delayThreadPoolExecutor.execute(delayMessageRunner);
                     delayMessageRunnerList.add(delayMessageRunner);
                     delayMessageRunnerMap.put(delayTopic, delayMessageRunner);

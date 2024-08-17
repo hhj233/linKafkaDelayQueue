@@ -29,7 +29,7 @@ public class DelayMessageQueue {
     private final DelayMessageConfig config;
 
     private final AdminClient adminClient;
-    private CopyOnWriteArrayList<String> delayTopicList = new CopyOnWriteArrayList<>();
+    private volatile CopyOnWriteArrayList<String> delayTopicList = new CopyOnWriteArrayList<>();
 
     private KafkaConsumer<String,String> consumer;
     private KafkaProducer<String,String> producer;
