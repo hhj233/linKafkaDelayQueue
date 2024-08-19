@@ -33,7 +33,7 @@ public class DelayMessageHelper {
     private final SortedMap<Integer, String> delayCoreInstanceConsistentHashMap = new TreeMap<>();
     private final Set<String> prevDelayCoreInstance = new HashSet<>();
     private String currentInstanceId;
-    private final Integer virtualNode = 5;
+    private final Integer virtualNode = 1000;
     private final AdminClient adminClient;
 
     public DelayMessageHelper(KafkaConfig kafkaConfig, ThreadPoolTaskExecutor delayThreadPoolExecutor,
