@@ -29,7 +29,7 @@ public class DelayMessageHelper {
     private final DelayNacosDiscoveryInstance nacosDiscoveryInstance;
     private final ThreadPoolTaskExecutor delayThreadPoolExecutor;
     private final List<DelayMessageRunner> delayMessageRunnerList = new ArrayList<>();
-    private final Map<String, DelayMessageRunner> delayMessageRunnerMap = new HashMap<>();
+    private final Map<String, Integer> delayMessageRunnerMap = new HashMap<>();
     private final SortedMap<Integer, String> delayCoreInstanceConsistentHashMap = new TreeMap<>();
     private final Set<String> prevDelayCoreInstance = new HashSet<>();
     private String currentInstanceId;
@@ -59,45 +59,7 @@ public class DelayMessageHelper {
 
     private void createDelayMessageRunner() {
         List<Instance> allDelayCoreInstance = this.nacosDiscoveryInstance.getAllInstance();
-        if(CollectionUtils.isEmpty(allDelayCoreInstance)) {
-            return;
-        }
-        // 服务实例增加,需分流
-        if (!this.prevDelayCoreInstance.isEmpty()) {
-            if (this.prevDelayCoreInstance.size() < allDelayCoreInstance.size()) {
-                this.prevDelayCoreInstance.clear();
-                log.info("shut down all delay transfer thread");
-                shutdown();
-            } else if (this.prevDelayCoreInstance.size() > allDelayCoreInstance.size()) {
-                this.prevDelayCoreInstance.clear();
-            } else {
-                for (Instance instance : allDelayCoreInstance) {
-                    if(!this.prevDelayCoreInstance.contains(instance.getInstanceId())) {
-                        this.prevDelayCoreInstance.clear();
-                        log.info("shut down all delay transfer thread");
-                        shutdown();
-                        break;
-                    }
-                }
-            }
-        }
-        String localIp = NetUtil.getLocalIp();
-        // 暂时加入接口进行识别
-        String port = System.getenv("server.port");
-        this.delayCoreInstanceConsistentHashMap.clear();
-        for (Instance instance : allDelayCoreInstance) {
-            String instanceId = instance.getInstanceId();
-            this.prevDelayCoreInstance.add(instanceId);
-            if(instance.getIp().equals(localIp) && instance.getPort() == Integer.parseInt(port)) {
-                currentInstanceId = instanceId;
-            }
-            for (int i = 0; i < virtualNode; i++) {
-                StringBuilder virtualNodeId = new StringBuilder(instanceId);
-                virtualNodeId.append("&&").append(i);
-                Integer consistentHashNode = HashUtil.FNV1_32_HASH(virtualNodeId.toString());
-                this.delayCoreInstanceConsistentHashMap.put(consistentHashNode, virtualNodeId.toString());
-            }
-        }
+        consistentHashInstanceHandler(allDelayCoreInstance);
         try {
             Set<String> allServerTopicSet = this.adminClient.listTopics().names().get();
             List<String> delayTopicList = allServerTopicSet.stream().filter(i -> i.contains(DelayConstEnum.CONST_DELAY_TOPIC_PREFIX.getCode()))
@@ -118,7 +80,11 @@ public class DelayMessageHelper {
                             groupId,kafkaConfig.getMonitorTopic() , delayTopic, delayLevelByTopic.getValue());
                     delayThreadPoolExecutor.execute(delayMessageRunner);
                     delayMessageRunnerList.add(delayMessageRunner);
-                    delayMessageRunnerMap.put(delayTopic, delayMessageRunner);
+                    delayMessageRunnerMap.put(delayTopic, this.delayMessageRunnerList.size()-1);
+                } else {
+                    if(this.delayMessageRunnerMap.containsKey(delayTopic)) {
+                        shutdown(delayTopic);
+                    }
                 }
             }
             log.info("currentInstance:{}, run delay thread:{}", currentInstanceId, JsonUtil.toJsonString(this.delayMessageRunnerMap.keySet()));
@@ -126,6 +92,51 @@ public class DelayMessageHelper {
 
         }
 
+    }
+
+    private void consistentHashInstanceHandler(List<Instance> allDelayCoreInstance) {
+        if(CollectionUtils.isEmpty(allDelayCoreInstance)) {
+            log.info("empty delay core instance,no need to init");
+            return;
+        }
+        // 服务实例增加,需分流
+        boolean isCreateConsistentHashFlag = false;
+        if (!this.prevDelayCoreInstance.isEmpty()) {
+            if(this.prevDelayCoreInstance.size() == allDelayCoreInstance.size()) {
+                for(Instance instance : allDelayCoreInstance) {
+                    if(!this.prevDelayCoreInstance.contains(instance.getInstanceId())) {
+                        this.prevDelayCoreInstance.clear();
+                        this.delayCoreInstanceConsistentHashMap.clear();
+                        isCreateConsistentHashFlag = true;
+                    }
+                }
+            }else {
+                this.prevDelayCoreInstance.clear();
+                this.delayCoreInstanceConsistentHashMap.clear();
+                isCreateConsistentHashFlag = true;
+            }
+        } else {
+            isCreateConsistentHashFlag = true;
+        }
+        if (isCreateConsistentHashFlag) {
+            this.delayCoreInstanceConsistentHashMap.clear();
+            String localIp = NetUtil.getLocalIp();
+            // 暂时加入接口进行识别
+            String port = System.getenv("server.port");
+            for (Instance instance : allDelayCoreInstance) {
+                String instanceId = instance.getInstanceId();
+                this.prevDelayCoreInstance.add(instanceId);
+                if(instance.getIp().equals(localIp) && instance.getPort() == Integer.parseInt(port)) {
+                    currentInstanceId = instanceId;
+                }
+                for (int i = 0; i < virtualNode; i++) {
+                    StringBuilder virtualNodeId = new StringBuilder(instanceId);
+                    virtualNodeId.append("&&").append(i);
+                    Integer consistentHashNode = HashUtil.FNV1_32_HASH(virtualNodeId.toString());
+                    this.delayCoreInstanceConsistentHashMap.put(consistentHashNode, virtualNodeId.toString());
+                }
+            }
+        }
     }
 
     private AdminClient createAdminClient() {
@@ -150,11 +161,23 @@ public class DelayMessageHelper {
     }
 
     public void shutdown() {
+        log.info("shutdown all level delay topic thread");
         for (DelayMessageRunner delayMessageRunner : delayMessageRunnerList) {
             delayMessageRunner.shutdown();
         }
         this.delayMessageRunnerList.clear();
         this.delayMessageRunnerMap.clear();
+    }
+
+    private void shutdown(String key) {
+        if(!this.delayMessageRunnerMap.containsKey(key)) {
+            return;
+        }
+        log.info("shutdown {} level delay topic thread", key);
+        Integer idx = this.delayMessageRunnerMap.get(key);
+        this.delayMessageRunnerMap.remove(key);
+        DelayMessageRunner delayMessageRunner = this.delayMessageRunnerList.get(idx);
+        delayMessageRunner.shutdown();
     }
 
 

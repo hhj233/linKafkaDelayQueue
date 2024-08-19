@@ -82,7 +82,14 @@ public class DelayMessageQueue {
         this.consumer.close();
         this.producer.close();
     }
-    public void offer(String message, DelayLevelEnum level) {
+
+    /**
+     * delay queue offer function
+     * @param message delay message
+     * @param level delay queue level
+     * @param callback this function will only be called back if a sending error occurs
+     */
+    public void offer(String message, DelayLevelEnum level, Consumer<String> callback) {
         DelayMessage delayMessage = new DelayMessage();
         delayMessage.setLevel(level);
         delayMessage.setTopic(config.getTopic());
@@ -101,11 +108,18 @@ public class DelayMessageQueue {
                             delayTopic, delayMessage.getKey(), JsonUtil.toJsonString(delayMessage), recordMetadata.offset());
                 } else {
                     log.error("send Kafka error:{}", e.getMessage());
+                    if (Objects.nonNull(callback)) {
+                        callback.accept(e.getMessage());
+                    }
                 }
             }
         });
     }
 
+    /**
+     * delay queue take function
+     * @param consumer biz logic must be written in this function.
+     */
     public void take(Consumer<String> consumer) {
         try {
             while(true) {
