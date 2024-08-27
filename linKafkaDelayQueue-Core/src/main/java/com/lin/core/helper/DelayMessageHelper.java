@@ -87,7 +87,7 @@ public class DelayMessageHelper {
                     }
                 }
             }
-            log.info("currentInstance:{}, run delay thread:{}", currentInstanceId, JsonUtil.toJsonString(this.delayMessageRunnerMap.keySet()));
+            log.debug("currentInstance:{}, run delay thread:{}", currentInstanceId, JsonUtil.toJsonString(this.delayMessageRunnerMap.keySet()));
         }catch (Exception e) {
 
         }

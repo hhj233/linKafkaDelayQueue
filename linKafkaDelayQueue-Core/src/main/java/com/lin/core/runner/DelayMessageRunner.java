@@ -12,6 +12,8 @@ import org.apache.kafka.common.serialization.StringSerializer;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author linzj
@@ -24,8 +26,13 @@ public class DelayMessageRunner implements Runnable {
     private final String monitorTopic;
     private final String topic;
     private final Long delayTime;
-    private final Timer timer = new Timer();
+    private final Timer timer;
+    private final ExecutorService delayMessageForwardFailTimer;
     private volatile boolean running = true;
+    private TopicPartition topicPartition;
+    private volatile AtomicLong successMaxOffset;
+    private Long prevCommitOffset;
+    private LinkedBlockingDeque<DelayMessage> delayMessageForwardFailQueue;
 
     public DelayMessageRunner(String servers, String groupId, String monitorTopic, String topic, Long delayTime) {
         this.consumer = createKafkaConsumer(servers,groupId);
@@ -33,10 +40,16 @@ public class DelayMessageRunner implements Runnable {
         this.monitorTopic = monitorTopic;
         this.topic = topic;
         this.delayTime = delayTime;
-
+        this.successMaxOffset = new AtomicLong(0L);
+        this.prevCommitOffset = 0L;
+        this.delayMessageForwardFailQueue = new LinkedBlockingDeque<>();
+        this.timer = new Timer("delay-Timer");
+        this.delayMessageForwardFailTimer = new ThreadPoolExecutor(1,1,0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1));
         this.consumer.subscribe(Collections.singleton(topic));
 
-        timer.schedule(new TimerTask() {
+    }
+    private void initDelaySchedule() {
+        this.timer.schedule(new TimerTask() {
             @Override
             public void run() {
                 synchronized (lock) {
@@ -45,10 +58,25 @@ public class DelayMessageRunner implements Runnable {
                 }
             }
         }, 0,200);
+        this.delayMessageForwardFailTimer.execute(new Runnable() {
+            @Override
+            public void run() {
+                while (true) {
+                    try {
+                        DelayMessage delayMessage = delayMessageForwardFailQueue.take();
+                        delayMessageForwardFailRetryHandler(delayMessage);
+                    } catch (InterruptedException e) {
+                        log.error("delay message forward fail queue take error:{}", e.getMessage());
+                    }
+                }
+            }
+        });
+
     }
 
     @Override
     public void run() {
+        initDelaySchedule();
         try{
             delayQueueCoreHandler();
         }finally {
@@ -62,6 +90,7 @@ public class DelayMessageRunner implements Runnable {
     private void delayQueueCoreHandler() {
         do {
             synchronized (lock) {
+                consumerCommitMaxOffset();
                 ConsumerRecords<String, String> consumerRecords = this.consumer.poll(Duration.ofMillis(200));
                 if (consumerRecords.isEmpty()) {
                     lock.wait();
@@ -73,6 +102,7 @@ public class DelayMessageRunner implements Runnable {
                     log.info("delay queue topic:{},partition:{},offset:{}",consumerRecord.topic(), consumerRecord.partition(), consumerRecord.offset());
                     long timestamp = consumerRecord.timestamp();
                     TopicPartition topicPartition = new TopicPartition(consumerRecord.topic(), consumerRecord.partition());
+                    this.topicPartition = topicPartition;
                     if (timestamp + this.delayTime + 1000 * 60 * 60 * 2 < System.currentTimeMillis()) {
                         log.warn("delay message is more than 2 hours old");
                         continue;
@@ -84,9 +114,11 @@ public class DelayMessageRunner implements Runnable {
                         }
                     } else if (timestamp + this.delayTime - 800 < System.currentTimeMillis()) {
                         log.info("enter 800ms message delay interval");
-                        long delayWaitTime = timestamp + this.delayTime - System.currentTimeMillis() - 5;
+                        long delayWaitTime = timestamp + this.delayTime - System.currentTimeMillis();
                         try {
-                            Thread.sleep(delayWaitTime);
+                            if(delayWaitTime > 0) {
+                                Thread.sleep(delayWaitTime);
+                            }
                         }catch (InterruptedException e) {
                             log.error("thread sleep interrupted error",e);
                             consumer.pause(Collections.singletonList(topicPartition));
@@ -159,23 +191,96 @@ public class DelayMessageRunner implements Runnable {
         String targetValue = delayMessage.getValue();
         ProducerRecord<String, String> producerRecord = new ProducerRecord<>(targetTopic, targetKey, targetValue);
         try {
-            RecordMetadata recordMetadata = this.producer.send(producerRecord).get();
-            log.info("send delay message to targetUser, topic:{}, key:{}, value:{}, offset:{}",
-                    targetTopic, targetKey, targetValue, recordMetadata.offset());
-            monitorKafkaDelayInterval(targetKey, timestamp+this.delayTime);
-            OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(consumerRecord.offset() + 1);
-            Map<TopicPartition, OffsetAndMetadata> metadataMap = new HashMap<>();
-            metadataMap.put(topicPartition, offsetAndMetadata);
-            consumer.commitAsync(metadataMap, new OffsetCommitCallback() {
+            long delayTime = this.delayTime;
+            this.producer.send(producerRecord, new Callback() {
                 @Override
-                public void onComplete(Map<TopicPartition, OffsetAndMetadata> map, Exception e) {
+                public void onCompletion(RecordMetadata recordMetadata, Exception e) {
+                    if (Objects.nonNull(recordMetadata)) {
+                        log.info("send delay message to targetUser, topic:{}, key:{}, value:{}, offset:{}",
+                                targetTopic, targetKey, targetValue, recordMetadata.offset());
+                        long currentSuccessOffset;
+                        long successWaitOffset = consumerRecord.offset() + 1;
+                        do {
+                            currentSuccessOffset = successMaxOffset.get();
+                            successWaitOffset = Math.max(successWaitOffset, currentSuccessOffset);
+                        }while (!successMaxOffset.compareAndSet(currentSuccessOffset, successWaitOffset));
+                    } else {
+                        // todo send delay message error logic
+                        log.error("send delay message to targetUser error, topic:{}, key:{}, value:{}, reason:{}",
+                                targetTopic, targetKey, targetValue,Objects.nonNull(e) ? e.getMessage() : "");
+                        try {
+                            delayMessageForwardFailQueue.put(delayMessage);
+                        } catch (InterruptedException ex) {
+                            log.error("delay message put retry queue error, {}", e.getMessage());
+                        }
+                    }
+
                 }
             });
+            monitorKafkaDelayInterval(targetKey, timestamp+delayTime);
+            // consumerCommitMaxOffset();
             return true;
         } catch (Exception e) {
             consumer.pause(Collections.singletonList(topicPartition));
             consumer.seek(topicPartition, consumerRecord.offset());
             return false;
+        }
+    }
+
+    private void delayMessageForwardFailRetryHandler(DelayMessage delayMessage) {
+        String targetTopic = delayMessage.getTopic();
+        String targetKey = delayMessage.getKey();
+        String targetValue = delayMessage.getValue();
+        ProducerRecord<String, String> producerRecord = new ProducerRecord<>(targetTopic, targetKey, targetValue);
+        try {
+            this.producer.send(producerRecord, new Callback() {
+                @Override
+                public void onCompletion(RecordMetadata recordMetadata, Exception e) {
+                    if (Objects.nonNull(recordMetadata)) {
+                        log.info("retry send delay message to targetUser, topic:{}, key:{}, value:{}, offset:{}",
+                                targetTopic, targetKey, targetValue, recordMetadata.offset());
+                    } else {
+                        // todo send delay message error logic
+                        log.error("send delay message to targetUser error, topic:{}, key:{}, value:{}, reason:{}",
+                                targetTopic, targetKey, targetValue,Objects.nonNull(e) ? e.getMessage() : "");
+                        try {
+                            delayMessageForwardFailQueue.put(delayMessage);
+                        } catch (InterruptedException ex) {
+                            log.error("delay message put retry queue error, {}", e.getMessage());
+                        }
+                    }
+
+                }
+            });
+        } catch (Exception e) {
+            log.error("send delay message to targetUser error, topic:{}, key:{}, value:{}, reason:{}",
+                    targetTopic, targetKey, targetValue,Objects.nonNull(e) ? e.getMessage() : "");
+            try {
+                delayMessageForwardFailQueue.put(delayMessage);
+            } catch (InterruptedException ex) {
+                log.error("delay message put retry queue error, {}", e.getMessage());
+            }
+        }
+    }
+
+    private void consumerCommitMaxOffset() {
+        if (Objects.isNull(this.topicPartition)) {
+            return;
+        }
+        long waitCommitOffset = successMaxOffset.get();
+        if(this.prevCommitOffset != waitCommitOffset) {
+            OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(waitCommitOffset);
+            Map<TopicPartition, OffsetAndMetadata> metadataMap = new HashMap<>();
+            metadataMap.put(this.topicPartition, offsetAndMetadata);
+            consumer.commitAsync(metadataMap, new OffsetCommitCallback() {
+                @Override
+                public void onComplete(Map<TopicPartition, OffsetAndMetadata> map, Exception e) {
+                    if(Objects.nonNull(map)) {
+                        log.info("delay topic commit, topic:{}, partition:{},offset:{}",topicPartition.topic(), topicPartition.partition(), waitCommitOffset);
+                        prevCommitOffset = waitCommitOffset;
+                    }
+                }
+            });
         }
     }
 
