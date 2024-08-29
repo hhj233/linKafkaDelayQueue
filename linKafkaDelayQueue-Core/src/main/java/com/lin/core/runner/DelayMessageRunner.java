@@ -31,7 +31,7 @@ public class DelayMessageRunner implements Runnable {
     private volatile boolean running = true;
     private TopicPartition topicPartition;
     private volatile AtomicLong successMaxOffset;
-    private Long prevCommitOffset;
+    private volatile AtomicLong prevCommitOffset;
     private LinkedBlockingDeque<DelayMessage> delayMessageForwardFailQueue;
 
     public DelayMessageRunner(String servers, String groupId, String monitorTopic, String topic, Long delayTime) {
@@ -41,7 +41,7 @@ public class DelayMessageRunner implements Runnable {
         this.topic = topic;
         this.delayTime = delayTime;
         this.successMaxOffset = new AtomicLong(0L);
-        this.prevCommitOffset = 0L;
+        this.prevCommitOffset = new AtomicLong(0L);
         this.delayMessageForwardFailQueue = new LinkedBlockingDeque<>();
         this.timer = new Timer("delay-Timer");
         this.delayMessageForwardFailTimer = new ThreadPoolExecutor(1,1,0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1));
@@ -91,6 +91,7 @@ public class DelayMessageRunner implements Runnable {
         do {
             synchronized (lock) {
                 consumerCommitMaxOffset();
+                long startPollTime = System.currentTimeMillis();
                 ConsumerRecords<String, String> consumerRecords = this.consumer.poll(Duration.ofMillis(200));
                 if (consumerRecords.isEmpty()) {
                     lock.wait();
@@ -99,6 +100,14 @@ public class DelayMessageRunner implements Runnable {
                 log.info("pull {} messages from {}", consumerRecords.count(), topic);
                 boolean timed = false;
                 for (ConsumerRecord<String, String> consumerRecord : consumerRecords) {
+                    long now = System.currentTimeMillis();
+                    // consumer should commit maximum offset when poll time interval is greater than 30s
+                    // max-poll-interval-ms 60s greater than this configuration, consumer will be rebalanced.
+                    if(now - startPollTime > 30* 1000) {
+                        consumerCommitMaxOffset();
+                        startPollTime = now;
+                    }
+
                     log.info("delay queue topic:{},partition:{},offset:{}",consumerRecord.topic(), consumerRecord.partition(), consumerRecord.offset());
                     long timestamp = consumerRecord.timestamp();
                     TopicPartition topicPartition = new TopicPartition(consumerRecord.topic(), consumerRecord.partition());
@@ -268,7 +277,7 @@ public class DelayMessageRunner implements Runnable {
             return;
         }
         long waitCommitOffset = successMaxOffset.get();
-        if(this.prevCommitOffset != waitCommitOffset) {
+        if(this.prevCommitOffset.get() != waitCommitOffset) {
             OffsetAndMetadata offsetAndMetadata = new OffsetAndMetadata(waitCommitOffset);
             Map<TopicPartition, OffsetAndMetadata> metadataMap = new HashMap<>();
             metadataMap.put(this.topicPartition, offsetAndMetadata);
@@ -277,7 +286,12 @@ public class DelayMessageRunner implements Runnable {
                 public void onComplete(Map<TopicPartition, OffsetAndMetadata> map, Exception e) {
                     if(Objects.nonNull(map)) {
                         log.info("delay topic commit, topic:{}, partition:{},offset:{}",topicPartition.topic(), topicPartition.partition(), waitCommitOffset);
-                        prevCommitOffset = waitCommitOffset;
+                        long commitOffset;
+                        long maxCommitOffset;
+                        do {
+                            commitOffset = prevCommitOffset.get();
+                            maxCommitOffset = Math.max(commitOffset, waitCommitOffset);
+                        }while (!prevCommitOffset.compareAndSet(commitOffset,maxCommitOffset));
                     }
                 }
             });
