@@ -5,16 +5,19 @@ import org.apache.kafka.clients.admin.KafkaAdminClient;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.util.Assert;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 import static com.lin.manager.config.KafkaConfig.*;
 
@@ -48,5 +51,30 @@ public class KafkaConfiguration {
         consumerFactory.setConsumerFactory(new DefaultKafkaConsumerFactory(props));
         consumerFactory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         return consumerFactory;
+    }
+
+    @Bean(value = "producerFactory")
+    public ProducerFactory<String, String> producerFactory(KafkaConfig kafkaConfig) {
+        Assert.notNull(kafkaConfig.getBootstrapServers(), "kafka broker address not configured");
+        Assert.notNull(kafkaConfig.getProducer(), "kafka producer config not configured");
+        Assert.notNull(kafkaConfig.getProducer().get(ProducerConfig.ACKS_CONFIG), "kafka producer.acks not configured");
+        Assert.notNull(kafkaConfig.getProducer().get(ProducerConfig.RETRIES_CONFIG), "kafka producer.reties not configured");
+        Map<String, Object> props = new HashMap<>();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaConfig.getBootstrapServers());
+        props.put(ProducerConfig.ACKS_CONFIG, kafkaConfig.getProducer().get(ProducerConfig.ACKS_CONFIG));
+        props.put(ProducerConfig.RETRIES_CONFIG, kafkaConfig.getProducer().get(ProducerConfig.RETRIES_CONFIG));
+        props.put(ProducerConfig.BATCH_SIZE_CONFIG,kafkaConfig.getProducer().get(BATCH_SIZE));
+        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG,kafkaConfig.getProducer().get(BUFFER_MEMORY));
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        List<Class> kafkaProducerInterceptorList = new ArrayList<>();
+        props.put(ProducerConfig.INTERCEPTOR_CLASSES_CONFIG, kafkaProducerInterceptorList);
+        return new DefaultKafkaProducerFactory<>(props);
+    }
+
+    @Bean(value = "kafkaTemplate")
+    @ConditionalOnMissingBean(value = KafkaTemplate.class)
+    public KafkaTemplate<String,String> kafkaTemplate(ProducerFactory factory) {
+        return new KafkaTemplate<>(factory);
     }
 }
