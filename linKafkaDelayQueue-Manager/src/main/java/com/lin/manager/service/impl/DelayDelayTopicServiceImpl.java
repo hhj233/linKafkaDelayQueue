@@ -2,18 +2,21 @@ package com.lin.manager.service.impl;
 
 import com.lin.common.constant.DelayConstEnum;
 import com.lin.common.util.ExceptionUtil;
+import com.lin.manager.config.KafkaConfig;
+import com.lin.manager.dto.DelayTopicConsumerLagLeadDto;
 import com.lin.manager.dto.DelayTopicDetailDto;
 import com.lin.manager.service.DelayTopicService;
 import com.lin.manager.vo.DelayTopicDetailRespVo;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.DescribeClusterResult;
-import org.apache.kafka.clients.admin.DescribeTopicsResult;
-import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.admin.*;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.Node;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.requests.DescribeLogDirsResponse;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +30,8 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class DelayDelayTopicServiceImpl implements DelayTopicService {
+    @Autowired
+    private KafkaConfig kafkaConfig;
     @Autowired
     private AdminClient adminClient;
 
@@ -55,8 +60,11 @@ public class DelayDelayTopicServiceImpl implements DelayTopicService {
             Map<String, TopicDescription> topicDescriptionMap = describeTopicsResult.all().get();
             TopicDescription topicDescription = topicDescriptionMap.get(req.getTopic());
             resp.setTopic(req.getTopic());
+            resp.setGroupId(req.getTopic() + "-group");
+            Map<String, DelayTopicConsumerLagLeadDto> lagOfMap = lagOf(req.getTopic() + "-group");
             List<DelayTopicDetailRespVo.TopicPartitionInfo> topicPartitionInfos = new ArrayList<>();
             for (TopicPartitionInfo partition : topicDescription.partitions()) {
+                DelayTopicConsumerLagLeadDto lagLeadDto = lagOfMap.get(req.getTopic() + "-" + partition.partition());
                 DelayTopicDetailRespVo.TopicPartitionInfo partitionInfo = DelayTopicDetailRespVo.TopicPartitionInfo.builder()
                         .partition(partition.partition())
                         .leader(DelayTopicDetailRespVo.Node.builder()
@@ -84,6 +92,8 @@ public class DelayDelayTopicServiceImpl implements DelayTopicService {
                                     .idString(i.idString())
                                     .build();
                         }).collect(Collectors.toList()))
+                        .lag(lagLeadDto.getLag())
+                        .lead(lagLeadDto.getLead())
                         .build();
                 topicPartitionInfos.add(partitionInfo);
             }
@@ -97,6 +107,39 @@ public class DelayDelayTopicServiceImpl implements DelayTopicService {
         }
 
         return resp;
+    }
+
+    private Map<String, DelayTopicConsumerLagLeadDto> lagOf(String groupId) {
+        ListConsumerGroupOffsetsResult result = adminClient.listConsumerGroupOffsets(groupId);
+        try {
+            Map<TopicPartition, OffsetAndMetadata> offsetAndMetadataMap = result.partitionsToOffsetAndMetadata().get();
+            Properties properties = new Properties();
+            properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaConfig.getBootstrapServers());
+            properties.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+            properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+            properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+            properties.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+            properties.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+            try (final KafkaConsumer<String,String> consumer = new KafkaConsumer<String, String>(properties)){
+                Map<TopicPartition, Long> endOffsets = consumer.endOffsets(offsetAndMetadataMap.keySet());
+                Map<TopicPartition, Long> beginningOffsets = consumer.beginningOffsets(offsetAndMetadataMap.keySet());
+                Map<String, DelayTopicConsumerLagLeadDto> collect = endOffsets.entrySet().stream().collect(
+                        Collectors.toMap(entry -> entry.getKey().topic() + "-"+ entry.getKey().partition(),
+                                entry -> {
+                            return DelayTopicConsumerLagLeadDto.builder()
+                                    .lag(entry.getValue() - endOffsets.get(entry.getKey()))
+                                    .lead(entry.getValue() - beginningOffsets.get(entry.getKey()))
+                                    .build();
+                                }));
+                return collect;
+            }
+
+        } catch (ExecutionException e) {
+            log.error("get consumer group message error:{}", ExceptionUtil.getStackTraceAsString(e));
+        } catch (InterruptedException e) {
+            log.error("get consumer group message error:{}", ExceptionUtil.getStackTraceAsString(e));
+        }
+        return new HashMap<>();
     }
 
     private Long getTopicMessageSize(String topic) throws ExecutionException, InterruptedException {

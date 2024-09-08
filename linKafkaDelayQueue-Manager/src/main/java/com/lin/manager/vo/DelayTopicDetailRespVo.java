@@ -27,6 +27,11 @@ public class DelayTopicDetailRespVo {
      */
     private Long size;
 
+    /**
+     * 消费者组
+     */
+    private String groupId;
+
 
     @Data
     @AllArgsConstructor
@@ -45,7 +50,21 @@ public class DelayTopicDetailRespVo {
          * 追随者节点
          */
         private List<Node> replicas;
+        /**
+         * 同步节点
+         */
         private List<Node> isr;
+
+        /**
+         * lag
+         */
+        private Long lag;
+
+        /**
+         * lead
+         */
+        private Long lead;
+
 
     }
 

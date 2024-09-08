@@ -11,3 +11,7 @@ spring:
       auto-offset-reset: earliest
       heartbeat-interval: 2000
       session-timeout-ms: 6000
+    producer:
+      acks: all
+      retries: 3
+
