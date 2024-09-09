@@ -2,7 +2,7 @@
 ## 1.description
 use the capabilities of kafka sdk to build a delay-queue
 ## 2.version
- - little biz volume prioritize the branch -- feature-kafka_delay_queue-1.0.1
+ - ~~little biz volume prioritize the branch -- feature-kafka_delay_queue-1.0.1~~
  - high scalability and high availability high biz volumn prioritize the branch --feature-kafka_delay_queue-2.0.1
 ### ~~2.1 version 1.0.1~~
 ~~provides 17 levels of delay queue capabilities,but all levels of delay queue will be created by every instance, event
@@ -39,3 +39,10 @@ and create 3 customer_group naming like<br>
 ``kafka-delay-second-1---default-group``<br>
   ``kafka-delay-second-1---one-group``<br>
   ``kafka-delay-second-1---two-group``<br>
+## 4.experimental result
+| 并发数 | 调度服务实例数 | 平均时延 | visualVm截图                                  | cpu使用率max | 消息延时转发时延                                    |
+| ------ | -------------- | -------- |---------------------------------------------| ------------ |---------------------------------------------|
+| 100    | 1              | 2.63ms   | ![img](screenShot/delayVisualVm-100-1.png)  | 7.2%         | ![img](screenShot/delayInterval-100-1.png)  |
+| 1000   | 1              | 8.39ms   | ![img](screenShot/delayVisualVm-1000-1.png) | 12.4%        | ![img](screenShot/delayInterval-1000-1.png) |
+| 100    | 2              | 0.43ms   | ![img](screenShot/delayVisualVm-100-2.png)  | 2.3%         | ![img](screenShot/delayInterval-100-2.png)  |
+| 1000   | 2              | 1.475ms  | ![img](screenShot/delayVisualVm-1000-2.png) | 3.1%         | ![img](screenShot/delayInterval-1000-2.png) |
